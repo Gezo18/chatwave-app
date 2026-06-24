@@ -2,6 +2,9 @@ import initSqlJs from 'sql.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
+import { readFile } from 'fs/promises';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
 const JWT_SECRET = 'chatwave-secret-key-change-in-production';
 
@@ -9,7 +12,10 @@ let db;
 
 async function getDb() {
   if (!db) {
-    const SQL = await initSqlJs();
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    const wasmBuffer = await readFile(join(__dirname, '../node_modules/sql.js/dist/sql-wasm.wasm'));
+    const SQL = await initSqlJs({ wasmBinary: wasmBuffer });
     db = new SQL.Database();
 
     db.run(`
