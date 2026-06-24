@@ -46,6 +46,7 @@ export const api = {
     },
     sendMessage: (id, content, type = 'text') => request(`/conversations/${id}/messages`, { method: 'POST', body: JSON.stringify({ content, type }) }),
     read: (conversationId, messageIds) => request(`/read/${conversationId}`, { method: 'POST', body: JSON.stringify({ messageIds }) }),
-    poll: (id, since) => request(`/poll/${id}${since ? `?since=${encodeURIComponent(since)}` : ''}`),
+    poll: (id, since) => request(`/conversations/${id}/poll${since ? `?since=${encodeURIComponent(since)}` : ''}`),
+    pollList: (since) => request(`/conversations/poll${since ? `?since=${encodeURIComponent(since)}` : ''}`),
   },
 };

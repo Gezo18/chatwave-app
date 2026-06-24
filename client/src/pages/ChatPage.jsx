@@ -27,6 +27,24 @@ export default function ChatPage() {
     loadConversations();
   }, [loadConversations]);
 
+  // Poll conversation list every 2 seconds
+  useEffect(() => {
+    let lastCheck = new Date().toISOString();
+
+    const interval = setInterval(async () => {
+      try {
+        const updates = await api.conversations.pollList(lastCheck);
+        if (updates.length > 0) {
+          await loadConversations();
+        }
+        lastCheck = new Date().toISOString();
+      } catch (err) {
+        // ignore
+      }
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [loadConversations]);
+
   useEffect(() => {
     const handleNewMessage = (msg) => {
       setConversations(prev => {

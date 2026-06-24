@@ -196,9 +196,26 @@ app.post('/api/conversations', authMiddleware, (req, res) => {
   }
 });
 
+// Poll: get conversations with new activity
+app.get('/api/conversations/poll', authMiddleware, (req, res) => {
+  const { since } = req.query;
+  if (!since) return res.json([]);
+
+  const conversations = db.prepare(`
+    SELECT DISTINCT c.id, m.created_at as last_message_at, m.content as last_message, m.sender_id as last_message_sender
+    FROM conversations c
+    JOIN conversation_members cm ON c.id = cm.conversation_id
+    JOIN messages m ON c.id = m.conversation_id
+    WHERE cm.user_id = ? AND m.created_at > ?
+    ORDER BY m.created_at DESC
+  `).all(req.userId, since);
+
+  res.json(conversations);
+});
+
 // Get messages
 app.get('/api/conversations/:id/messages', authMiddleware, (req, res) => {
-  const { limit = 50, before } = req.query;
+  const { limit = 50, before, since } = req.query;
 
   let query = `
     SELECT m.*, u.username as sender_name, u.avatar as sender_avatar
@@ -211,6 +228,11 @@ app.get('/api/conversations/:id/messages', authMiddleware, (req, res) => {
   if (before) {
     query += ' AND m.created_at < ?';
     params.push(before);
+  }
+
+  if (since) {
+    query += ' AND m.created_at > ?';
+    params.push(since);
   }
 
   query += ' ORDER BY m.created_at DESC LIMIT ?';
@@ -230,6 +252,34 @@ app.get('/api/conversations/:id/messages', authMiddleware, (req, res) => {
 
   res.json(enriched.reverse());
 });
+
+// Poll for new messages in a conversation
+app.get('/api/conversations/:id/poll', authMiddleware, (req, res) => {
+  const { since } = req.query;
+  if (!since) return res.json([]);
+
+  const messages = db.prepare(`
+    SELECT m.*, u.username as sender_name, u.avatar as sender_avatar
+    FROM messages m
+    JOIN users u ON m.sender_id = u.id
+    WHERE m.conversation_id = ? AND m.created_at > ?
+    ORDER BY m.created_at ASC
+  `).all(req.params.id, since);
+
+  const enriched = messages.map(msg => {
+    const reads = db.prepare(`
+      SELECT u.id, u.username, mr.read_at
+      FROM message_reads mr
+      JOIN users u ON mr.user_id = u.id
+      WHERE mr.message_id = ?
+    `).all(msg.id);
+    return { ...msg, reads };
+  });
+
+  res.json(enriched);
+});
+
+
 
 // Send message
 app.post('/api/conversations/:id/messages', authMiddleware, (req, res) => {
