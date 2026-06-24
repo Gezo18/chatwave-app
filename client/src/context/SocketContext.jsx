@@ -1,79 +1,33 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
-import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
+import { api } from '../utils/api';
 
 const SocketContext = createContext(null);
 
 export function SocketProvider({ children }) {
   const { user } = useAuth();
-  const socketRef = useRef(null);
-  const [connected, setConnected] = useState(false);
-  const [onlineUsers, setOnlineUsers] = useState(new Set());
-  const [typingUsers, setTypingUsers] = useState({});
-  const listenersRef = useRef(new Map());
-
-  useEffect(() => {
-    if (!user) {
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-        socketRef.current = null;
-      }
-      return;
-    }
-
-    const token = localStorage.getItem('chatwave_token');
-    const socketUrl = import.meta.env.VITE_API_URL || window.location.origin;
-    const socket = io(socketUrl, { auth: { token } });
-    socketRef.current = socket;
-
-    socket.on('connect', () => setConnected(true));
-    socket.on('disconnect', () => setConnected(false));
-
-    socket.on('user:online', ({ userId, online }) => {
-      setOnlineUsers(prev => {
-        const next = new Set(prev);
-        if (online) next.add(userId);
-        else next.delete(userId);
-        return next;
-      });
-    });
-
-    socket.on('typing:start', ({ conversationId, userId, username }) => {
-      setTypingUsers(prev => ({
-        ...prev,
-        [conversationId]: { userId, username, typing: true }
-      }));
-    });
-
-    socket.on('typing:stop', ({ conversationId }) => {
-      setTypingUsers(prev => {
-        const next = { ...prev };
-        delete next[conversationId];
-        return next;
-      });
-    });
-
-    return () => {
-      socket.disconnect();
-      socketRef.current = null;
-    };
-  }, [user]);
+  const [connected] = useState(true);
+  const [onlineUsers] = useState(new Set());
+  const [typingUsers] = useState({});
+  const callbacksRef = useRef({});
 
   const emit = useCallback((event, data) => {
-    socketRef.current?.emit(event, data);
+    if (event === 'message:send') {
+      api.conversations.sendMessage(data.conversationId, data.content).then(msg => {
+        (callbacksRef.current['message:new'] || []).forEach(cb => cb(msg));
+      });
+    } else if (event === 'message:read') {
+      api.conversations.read(data.conversationId, data.messageIds);
+    }
   }, []);
 
   const on = useCallback((event, callback) => {
-    if (!socketRef.current) return;
-    socketRef.current.on(event, callback);
-    if (!listenersRef.current.has(event)) {
-      listenersRef.current.set(event, []);
-    }
-    listenersRef.current.get(event).push(callback);
+    if (!callbacksRef.current[event]) callbacksRef.current[event] = [];
+    callbacksRef.current[event].push(callback);
   }, []);
 
   const off = useCallback((event, callback) => {
-    socketRef.current?.off(event, callback);
+    callbacksRef.current[event] = (callbacksRef.current[event] || []).filter(cb => cb !== callback);
   }, []);
 
   return (

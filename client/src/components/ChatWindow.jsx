@@ -113,6 +113,32 @@ export default function ChatWindow({ conversation, onBack }) {
       .finally(() => setLoading(false));
   }, [conversation, scrollToBottom]);
 
+  // Polling for new messages
+  useEffect(() => {
+    if (!conversation) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const lastMsg = messages[messages.length - 1];
+        const since = lastMsg?.created_at;
+        const newMsgs = await api.conversations.poll(conversation.id, since);
+        
+        if (newMsgs.length > 0) {
+          setMessages(prev => {
+            const existingIds = new Set(prev.map(m => m.id));
+            const unique = newMsgs.filter(m => !existingIds.has(m.id));
+            return unique.length > 0 ? [...prev, ...unique] : prev;
+          });
+          scrollToBottom();
+        }
+      } catch (err) {
+        // Ignore polling errors
+      }
+    }, 2000);
+
+    return () => clearInterval(pollInterval);
+  }, [conversation, messages, scrollToBottom]);
+
   useEffect(() => {
     if (!conversation) return;
 
