@@ -62,9 +62,19 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id)
   );
 
+  CREATE TABLE IF NOT EXISTS contacts (
+    user_id TEXT NOT NULL,
+    contact_id TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, contact_id),
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (contact_id) REFERENCES users(id)
+  );
+
   CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_conversation_members_user ON conversation_members(user_id);
   CREATE INDEX IF NOT EXISTS idx_message_reads_message ON message_reads(message_id);
+  CREATE INDEX IF NOT EXISTS idx_contacts_user ON contacts(user_id);
 `);
 
 export default db;

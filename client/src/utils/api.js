@@ -33,6 +33,10 @@ export const api = {
   users: {
     list: () => request('/users'),
   },
+  contacts: {
+    list: () => request('/contacts'),
+    remove: (id) => request(`/contacts/${id}`, { method: 'DELETE' }),
+  },
   conversations: {
     list: () => request('/conversations'),
     create: (data) => request('/conversations', { method: 'POST', body: JSON.stringify(data) }),

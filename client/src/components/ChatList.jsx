@@ -1,22 +1,56 @@
-import { useState } from 'react';
-import { Search, Plus, MessageCircle, LogOut, X } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Search, Plus, MessageCircle, LogOut, X, UserCheck } from 'lucide-react';
 import Avatar from './Avatar';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
 import { formatDistanceToNow } from 'date-fns';
+import { api } from '../utils/api';
 
 export default function ChatList({ conversations, activeId, onSelect, onNewChat }) {
   const { user, logout } = useAuth();
   const { onlineUsers } = useSocket();
   const [search, setSearch] = useState('');
+  const [tab, setTab] = useState('chats');
+  const [contacts, setContacts] = useState([]);
+
+  useEffect(() => {
+    if (tab === 'contacts') {
+      api.contacts.list().then(setContacts).catch(console.error);
+    }
+  }, [tab]);
 
   const filtered = conversations.filter(c =>
     c.name.toLowerCase().includes(search.toLowerCase())
   );
 
+  const filteredContacts = contacts.filter(c =>
+    c.username.toLowerCase().includes(search.toLowerCase())
+  );
+
   return (
     <div className="h-full flex flex-col bg-[var(--bg-light)] border-r border-[var(--border)]">
       <div className="p-4 border-b border-[var(--border)]">
+        <div className="flex gap-1 mb-3">
+          <button
+            onClick={() => setTab('chats')}
+            className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
+              tab === 'chats' ? 'bg-[var(--primary)] text-white' : 'bg-[var(--bg)] text-[var(--text-muted)]'
+            }`}
+          >
+            <MessageCircle className="w-4 h-4 inline mr-1" />
+            Chats
+          </button>
+          <button
+            onClick={() => setTab('contacts')}
+            className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
+              tab === 'contacts' ? 'bg-[var(--primary)] text-white' : 'bg-[var(--bg)] text-[var(--text-muted)]'
+            }`}
+          >
+            <UserCheck className="w-4 h-4 inline mr-1" />
+            Contacts
+          </button>
+        </div>
+
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <Avatar name={user?.username} color={user?.avatar} size="md" />
@@ -47,7 +81,7 @@ export default function ChatList({ conversations, activeId, onSelect, onNewChat 
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
           <input
             type="text"
-            placeholder="Search conversations..."
+            placeholder={tab === 'chats' ? 'Search conversations...' : 'Search contacts...'}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-xl pl-10 pr-4 py-2.5 text-sm text-[var(--text)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--primary)] transition-colors"
@@ -64,60 +98,100 @@ export default function ChatList({ conversations, activeId, onSelect, onNewChat 
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-[var(--text-muted)] p-4">
-            <MessageCircle className="w-12 h-12 mb-3 opacity-50" />
-            <p className="text-sm">No conversations yet</p>
-            <button
-              onClick={onNewChat}
-              className="mt-2 text-sm text-[var(--primary)] hover:underline"
-            >
-              Start a new chat
-            </button>
-          </div>
-        ) : (
-          <div className="py-1">
-            {filtered.map((conv) => {
-              const otherUser = conv.type === 'direct' ? conv.members?.find(m => m.id !== user?.id) : null;
-              const isOnline = otherUser ? onlineUsers.has(otherUser.id) : false;
+        {tab === 'chats' ? (
+          filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-[var(--text-muted)] p-4">
+              <MessageCircle className="w-12 h-12 mb-3 opacity-50" />
+              <p className="text-sm">No conversations yet</p>
+              <button
+                onClick={onNewChat}
+                className="mt-2 text-sm text-[var(--primary)] hover:underline"
+              >
+                Start a new chat
+              </button>
+            </div>
+          ) : (
+            <div className="py-1">
+              {filtered.map((conv) => {
+                const otherUser = conv.type === 'direct' ? conv.members?.find(m => m.id !== user?.id) : null;
+                const isOnline = otherUser ? onlineUsers.has(otherUser.id) : false;
 
-              return (
+                return (
+                  <button
+                    key={conv.id}
+                    onClick={() => onSelect(conv)}
+                    className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-[var(--bg)] transition-colors ${
+                      activeId === conv.id ? 'bg-[var(--bg)]' : ''
+                    }`}
+                  >
+                    <Avatar
+                      name={conv.name}
+                      color={conv.avatar}
+                      online={conv.type === 'direct' ? isOnline : undefined}
+                    />
+                    <div className="flex-1 min-w-0 text-left">
+                      <div className="flex items-center justify-between">
+                        <h3 className="font-medium truncate">{conv.name}</h3>
+                        {conv.last_message_at && (
+                          <span className="text-xs text-[var(--text-muted)]">
+                            {formatDistanceToNow(new Date(conv.last_message_at), { addSuffix: false })}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between mt-0.5">
+                        <p className="text-sm text-[var(--text-muted)] truncate">
+                          {conv.last_message || 'No messages yet'}
+                        </p>
+                        {conv.unread > 0 && (
+                          <span className="ml-2 px-2 py-0.5 bg-[var(--primary)] text-white text-xs rounded-full font-medium">
+                            {conv.unread}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )
+        ) : (
+          filteredContacts.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-[var(--text-muted)] p-4">
+              <UserCheck className="w-12 h-12 mb-3 opacity-50" />
+              <p className="text-sm">No contacts yet</p>
+              <p className="text-xs mt-1">Start a chat to save contacts</p>
+            </div>
+          ) : (
+            <div className="py-1">
+              {filteredContacts.map((contact) => (
                 <button
-                  key={conv.id}
-                  onClick={() => onSelect(conv)}
-                  className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-[var(--bg)] transition-colors ${
-                    activeId === conv.id ? 'bg-[var(--bg)]' : ''
-                  }`}
+                  key={contact.id}
+                  onClick={() => onNewChat && onSelect ? (() => {
+                    // Find existing direct conversation with this contact
+                    const existing = conversations.find(c =>
+                      c.type === 'direct' && c.members?.some(m => m.id === contact.id)
+                    );
+                    if (existing) {
+                      onSelect(existing);
+                    } else {
+                      onNewChat();
+                    }
+                  })() : null}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[var(--bg)] transition-colors"
                 >
                   <Avatar
-                    name={conv.name}
-                    color={conv.avatar}
-                    online={conv.type === 'direct' ? isOnline : undefined}
+                    name={contact.username}
+                    color={contact.avatar}
+                    online={onlineUsers.has(contact.id)}
                   />
                   <div className="flex-1 min-w-0 text-left">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-medium truncate">{conv.name}</h3>
-                      {conv.last_message_at && (
-                        <span className="text-xs text-[var(--text-muted)]">
-                          {formatDistanceToNow(new Date(conv.last_message_at), { addSuffix: false })}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between mt-0.5">
-                      <p className="text-sm text-[var(--text-muted)] truncate">
-                        {conv.last_message || 'No messages yet'}
-                      </p>
-                      {conv.unread > 0 && (
-                        <span className="ml-2 px-2 py-0.5 bg-[var(--primary)] text-white text-xs rounded-full font-medium">
-                          {conv.unread}
-                        </span>
-                      )}
-                    </div>
+                    <h3 className="font-medium truncate">{contact.username}</h3>
+                    <p className="text-xs text-[var(--text-muted)] truncate">{contact.status || 'Hey there! I am using ChatWave'}</p>
                   </div>
                 </button>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+          )
         )}
       </div>
     </div>

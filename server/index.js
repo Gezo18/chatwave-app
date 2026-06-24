@@ -183,6 +183,13 @@ app.post('/api/conversations', authMiddleware, (req, res) => {
       );
     }
 
+    // Auto-save contacts
+    const contactStmt = db.prepare('INSERT OR IGNORE INTO contacts (user_id, contact_id) VALUES (?, ?)');
+    for (const memberId of memberIds) {
+      contactStmt.run(req.userId, memberId);
+      contactStmt.run(memberId, req.userId);
+    }
+
     res.json({ id });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -245,6 +252,24 @@ app.post('/api/conversations/:id/messages', authMiddleware, (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Get contacts
+app.get('/api/contacts', authMiddleware, (req, res) => {
+  const contacts = db.prepare(`
+    SELECT u.id, u.username, u.avatar, u.status, u.online, u.last_seen
+    FROM contacts c
+    JOIN users u ON c.contact_id = u.id
+    WHERE c.user_id = ?
+    ORDER BY u.username ASC
+  `).all(req.userId);
+  res.json(contacts);
+});
+
+// Remove contact
+app.delete('/api/contacts/:id', authMiddleware, (req, res) => {
+  db.prepare('DELETE FROM contacts WHERE user_id = ? AND contact_id = ?').run(req.userId, req.params.id);
+  res.json({ success: true });
 });
 
 // ==================== SOCKET.IO ====================
