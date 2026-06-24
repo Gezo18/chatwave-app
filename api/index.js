@@ -1,7 +1,6 @@
-import initSqlJs from 'sql.js';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import { v4 as uuidv4 } from 'uuid';
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const { v4: uuidv4 } = require('uuid');
 
 const JWT_SECRET = 'chatwave-secret-key-change-in-production';
 
@@ -9,6 +8,7 @@ let db;
 
 async function getDb() {
   if (!db) {
+    const initSqlJs = (await import('sql.js')).default;
     const SQL = await initSqlJs();
     db = new SQL.Database();
 
@@ -81,7 +81,7 @@ function getUser(req) {
 
 function queryAll(db, sql, params = []) {
   const stmt = db.prepare(sql);
-  stmt.bind(params);
+  if (params.length) stmt.bind(params);
   const results = [];
   while (stmt.step()) {
     results.push(stmt.getAsObject());
@@ -91,11 +91,10 @@ function queryAll(db, sql, params = []) {
 }
 
 function queryOne(db, sql, params = []) {
-  const results = queryAll(db, sql, params);
-  return results[0] || null;
+  return queryAll(db, sql, params)[0] || null;
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -108,7 +107,6 @@ export default async function handler(req, res) {
     const db = await getDb();
     const { url, method } = req;
 
-    // Auth routes
     if (url === '/api/auth/register' && method === 'POST') {
       const { username, password } = req.body;
       if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
@@ -126,7 +124,6 @@ export default async function handler(req, res) {
       db.run('INSERT INTO users (id, username, password, avatar) VALUES (?, ?, ?, ?)', [id, username, hashedPassword, color]);
       const user = queryOne(db, 'SELECT id, username, avatar, status, online, created_at FROM users WHERE id = ?', [id]);
       const token = generateToken(user);
-
       return res.json({ token, user });
     }
 
@@ -136,7 +133,6 @@ export default async function handler(req, res) {
       if (!user || !bcrypt.compareSync(password, user.password)) {
         return res.status(401).json({ error: 'Invalid credentials' });
       }
-
       const token = generateToken(user);
       const { password: _, ...userData } = user;
       return res.json({ token, user: userData });
@@ -149,7 +145,6 @@ export default async function handler(req, res) {
       return res.json(user);
     }
 
-    // Users
     if (url === '/api/users' && method === 'GET') {
       const decoded = getUser(req);
       if (!decoded) return res.status(401).json({ error: 'Unauthorized' });
@@ -157,14 +152,12 @@ export default async function handler(req, res) {
       return res.json(users);
     }
 
-    // Conversations
     if (url === '/api/conversations' && method === 'GET') {
       const decoded = getUser(req);
       if (!decoded) return res.status(401).json({ error: 'Unauthorized' });
 
       const conversations = queryAll(db, `
-        SELECT c.*, cm.role
-        FROM conversations c
+        SELECT c.*, cm.role FROM conversations c
         JOIN conversation_members cm ON c.id = cm.conversation_id
         WHERE cm.user_id = ?
       `, [decoded.id]);
@@ -172,13 +165,12 @@ export default async function handler(req, res) {
       const enriched = conversations.map(conv => {
         const members = queryAll(db, `
           SELECT u.id, u.username, u.avatar, u.online, u.last_seen
-          FROM conversation_members cm
-          JOIN users u ON cm.user_id = u.id
+          FROM conversation_members cm JOIN users u ON cm.user_id = u.id
           WHERE cm.conversation_id = ?
         `, [conv.id]);
 
         const lastMsg = queryOne(db, `
-          SELECT content, created_at, sender_id FROM messages 
+          SELECT content, created_at, sender_id FROM messages
           WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1
         `, [conv.id]);
 
@@ -188,153 +180,81 @@ export default async function handler(req, res) {
           AND NOT EXISTS (SELECT 1 FROM message_reads mr WHERE mr.message_id = m.id AND mr.user_id = ?)
         `, [conv.id, decoded.id, decoded.id]);
 
-        let name = conv.name;
-        let avatar = conv.avatar;
+        let name = conv.name, avatar = conv.avatar;
         if (conv.type === 'direct') {
           const other = members.find(m => m.id !== decoded.id);
           if (other) { name = other.username; avatar = other.avatar; }
         }
 
-        return {
-          ...conv,
-          members,
-          name,
-          avatar,
-          unread: unread?.count || 0,
-          last_message: lastMsg?.content || null,
-          last_message_at: lastMsg?.created_at || null,
-          last_message_sender: lastMsg?.sender_id || null
-        };
+        return { ...conv, members, name, avatar, unread: unread?.count || 0, last_message: lastMsg?.content, last_message_at: lastMsg?.created_at, last_message_sender: lastMsg?.sender_id };
       });
 
-      enriched.sort((a, b) => {
-        if (!a.last_message_at) return 1;
-        if (!b.last_message_at) return -1;
-        return new Date(b.last_message_at) - new Date(a.last_message_at);
-      });
-
+      enriched.sort((a, b) => (!a.last_message_at ? 1 : !b.last_message_at ? -1 : new Date(b.last_message_at) - new Date(a.last_message_at)));
       return res.json(enriched);
     }
 
     if (url === '/api/conversations' && method === 'POST') {
       const decoded = getUser(req);
       if (!decoded) return res.status(401).json({ error: 'Unauthorized' });
-
       const { type = 'direct', memberIds = [], name = '' } = req.body;
       const id = uuidv4();
 
       if (type === 'direct' && memberIds.length === 1) {
-        const existing = queryOne(db, `
-          SELECT c.id FROM conversations c
-          JOIN conversation_members cm1 ON c.id = cm1.conversation_id AND cm1.user_id = ?
-          JOIN conversation_members cm2 ON c.id = cm2.conversation_id AND cm2.user_id = ?
-          WHERE c.type = 'direct'
-        `, [decoded.id, memberIds[0]]);
-
+        const existing = queryOne(db, `SELECT c.id FROM conversations c JOIN conversation_members cm1 ON c.id = cm1.conversation_id AND cm1.user_id = ? JOIN conversation_members cm2 ON c.id = cm2.conversation_id AND cm2.user_id = ? WHERE c.type = 'direct'`, [decoded.id, memberIds[0]]);
         if (existing) return res.json({ id: existing.id });
       }
 
       db.run('INSERT INTO conversations (id, type, name, created_by) VALUES (?, ?, ?, ?)', [id, type, name, decoded.id]);
       db.run('INSERT INTO conversation_members (conversation_id, user_id, role) VALUES (?, ?, ?)', [id, decoded.id, 'admin']);
-      for (const memberId of memberIds) {
-        db.run('INSERT OR IGNORE INTO conversation_members (conversation_id, user_id) VALUES (?, ?)', [id, memberId]);
-      }
-
+      for (const memberId of memberIds) db.run('INSERT OR IGNORE INTO conversation_members (conversation_id, user_id) VALUES (?, ?)', [id, memberId]);
       return res.json({ id });
     }
 
-    // Messages
     if (url?.match(/^\/api\/conversations\/[^/]+\/messages$/)) {
       const decoded = getUser(req);
       if (!decoded) return res.status(401).json({ error: 'Unauthorized' });
-
       const convId = url.split('/')[3];
 
       if (method === 'GET') {
-        const messages = queryAll(db, `
-          SELECT m.*, u.username as sender_name, u.avatar as sender_avatar
-          FROM messages m
-          JOIN users u ON m.sender_id = u.id
-          WHERE m.conversation_id = ?
-          ORDER BY m.created_at DESC LIMIT 50
-        `, [convId]);
-
-        const enriched = messages.map(msg => {
-          const reads = queryAll(db, `
-            SELECT u.id, u.username, mr.read_at
-            FROM message_reads mr
-            JOIN users u ON mr.user_id = u.id
-            WHERE mr.message_id = ?
-          `, [msg.id]);
-          return { ...msg, reads };
-        });
-
+        const messages = queryAll(db, `SELECT m.*, u.username as sender_name, u.avatar as sender_avatar FROM messages m JOIN users u ON m.sender_id = u.id WHERE m.conversation_id = ? ORDER BY m.created_at DESC LIMIT 50`, [convId]);
+        const enriched = messages.map(msg => ({ ...msg, reads: queryAll(db, `SELECT u.id, u.username, mr.read_at FROM message_reads mr JOIN users u ON mr.user_id = u.id WHERE mr.message_id = ?`, [msg.id]) }));
         return res.json(enriched.reverse());
       }
 
       if (method === 'POST') {
         const { content, type = 'text' } = req.body;
         const id = uuidv4();
-
         db.run('INSERT INTO messages (id, conversation_id, sender_id, content, type) VALUES (?, ?, ?, ?, ?)', [id, convId, decoded.id, content, type]);
         db.run('INSERT OR IGNORE INTO message_reads (message_id, user_id) VALUES (?, ?)', [id, decoded.id]);
-
-        const message = queryOne(db, `
-          SELECT m.*, u.username as sender_name, u.avatar as sender_avatar
-          FROM messages m
-          JOIN users u ON m.sender_id = u.id
-          WHERE m.id = ?
-        `, [id]);
-
-        const reads = queryAll(db, 'SELECT u.id, u.username, mr.read_at FROM message_reads mr JOIN users u ON mr.user_id = u.id WHERE mr.message_id = ?', [id]);
-
+        const message = queryOne(db, `SELECT m.*, u.username as sender_name, u.avatar as sender_avatar FROM messages m JOIN users u ON m.sender_id = u.id WHERE m.id = ?`, [id]);
+        const reads = queryAll(db, `SELECT u.id, u.username, mr.read_at FROM message_reads mr JOIN users u ON mr.user_id = u.id WHERE mr.message_id = ?`, [id]);
         return res.json({ ...message, reads });
       }
     }
 
-    // Polling
     if (url?.match(/^\/api\/poll\/[^/]+/)) {
       const decoded = getUser(req);
       if (!decoded) return res.status(401).json({ error: 'Unauthorized' });
-
       const convId = url.split('/')[3]?.split('?')[0];
       const sinceMatch = url.match(/since=([^&]+)/);
       const since = sinceMatch ? decodeURIComponent(sinceMatch[1]) : null;
 
-      let sql = `
-        SELECT m.*, u.username as sender_name, u.avatar as sender_avatar
-        FROM messages m
-        JOIN users u ON m.sender_id = u.id
-        WHERE m.conversation_id = ?
-      `;
+      let sql = `SELECT m.*, u.username as sender_name, u.avatar as sender_avatar FROM messages m JOIN users u ON m.sender_id = u.id WHERE m.conversation_id = ?`;
       const params = [convId];
-
-      if (since) {
-        sql += ' AND m.created_at > ?';
-        params.push(since);
-      }
-
+      if (since) { sql += ' AND m.created_at > ?'; params.push(since); }
       sql += ' ORDER BY m.created_at ASC LIMIT 50';
-      const messages = queryAll(db, sql, params);
-
-      return res.json(messages);
+      return res.json(queryAll(db, sql, params));
     }
 
-    // Mark as read
     if (url?.match(/^\/api\/read\/[^/]+/) && method === 'POST') {
       const decoded = getUser(req);
       if (!decoded) return res.status(401).json({ error: 'Unauthorized' });
-
       const { messageIds } = req.body;
-      for (const msgId of messageIds) {
-        db.run('INSERT OR IGNORE INTO message_reads (message_id, user_id) VALUES (?, ?)', [msgId, decoded.id]);
-      }
-
+      for (const msgId of messageIds) db.run('INSERT OR IGNORE INTO message_reads (message_id, user_id) VALUES (?, ?)', [msgId, decoded.id]);
       return res.json({ ok: true });
     }
 
     return res.status(404).json({ error: 'Not found' });
-
   } catch (err) {
     console.error('API Error:', err);
     return res.status(500).json({ error: err.message });
