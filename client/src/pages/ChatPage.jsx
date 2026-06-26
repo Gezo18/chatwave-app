@@ -1,16 +1,24 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import ChatList from '../components/ChatList';
 import ChatWindow from '../components/ChatWindow';
 import NewChatModal from '../components/NewChatModal';
+import ProfileModal from '../components/ProfileModal';
+import GroupSettingsModal from '../components/GroupSettingsModal';
+import CallModal from '../components/CallModal';
 import { useSocket } from '../context/SocketContext';
+import { useAuth } from '../context/AuthContext';
 import { api } from '../utils/api';
 
 export default function ChatPage() {
+  const { user } = useAuth();
   const [conversations, setConversations] = useState([]);
   const [activeConv, setActiveConv] = useState(null);
   const [showNewChat, setShowNewChat] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const [showGroupSettings, setShowGroupSettings] = useState(false);
   const [loading, setLoading] = useState(true);
   const { on, off } = useSocket();
+  const callModalRef = useRef(null);
 
   const loadConversations = useCallback(async () => {
     try {
@@ -30,17 +38,12 @@ export default function ChatPage() {
   // Poll conversation list every 2 seconds
   useEffect(() => {
     let lastCheck = new Date().toISOString();
-
     const interval = setInterval(async () => {
       try {
         const updates = await api.conversations.pollList(lastCheck);
-        if (updates.length > 0) {
-          await loadConversations();
-        }
+        if (updates.length > 0) await loadConversations();
         lastCheck = new Date().toISOString();
-      } catch (err) {
-        // ignore
-      }
+      } catch (err) { /* ignore */ }
     }, 2000);
     return () => clearInterval(interval);
   }, [loadConversations]);
@@ -55,7 +58,7 @@ export default function ChatPage() {
               last_message: msg.content,
               last_message_at: msg.created_at,
               last_message_sender: msg.sender_id,
-              unread: msg.sender_id !== activeConv?.id ? (conv.unread || 0) + 1 : conv.unread
+              unread: msg.sender_id !== user?.id ? (conv.unread || 0) + 1 : conv.unread
             };
           }
           return conv;
@@ -68,12 +71,9 @@ export default function ChatPage() {
     };
 
     const handleReadReceipt = ({ conversationId }) => {
-      setConversations(prev => prev.map(conv => {
-        if (conv.id === conversationId) {
-          return { ...conv, unread: 0 };
-        }
-        return conv;
-      }));
+      setConversations(prev => prev.map(conv =>
+        conv.id === conversationId ? { ...conv, unread: 0 } : conv
+      ));
     };
 
     on('message:new', handleNewMessage);
@@ -83,13 +83,11 @@ export default function ChatPage() {
       off('message:new', handleNewMessage);
       off('message:read', handleReadReceipt);
     };
-  }, [activeConv, on, off]);
+  }, [user, on, off]);
 
-  const handleSelectConv = async (conv) => {
+  const handleSelectConv = (conv) => {
     setActiveConv(conv);
-    setConversations(prev => prev.map(c => 
-      c.id === conv.id ? { ...c, unread: 0 } : c
-    ));
+    setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, unread: 0 } : c));
   };
 
   const handleNewChatCreated = async (convId) => {
@@ -97,6 +95,13 @@ export default function ChatPage() {
     const convs = await api.conversations.list();
     const newConv = convs.find(c => c.id === convId);
     if (newConv) setActiveConv(newConv);
+  };
+
+  const handleGroupUpdate = async () => {
+    await loadConversations();
+    const convs = await api.conversations.list();
+    const updated = convs.find(c => c.id === activeConv?.id);
+    if (updated) setActiveConv(updated);
   };
 
   if (loading) {
@@ -115,6 +120,7 @@ export default function ChatPage() {
           activeId={activeConv?.id}
           onSelect={handleSelectConv}
           onNewChat={() => setShowNewChat(true)}
+          onProfile={() => setShowProfile(true)}
         />
       </div>
 
@@ -122,6 +128,8 @@ export default function ChatPage() {
         <ChatWindow
           conversation={activeConv}
           onBack={() => setActiveConv(null)}
+          onGroupSettings={() => setShowGroupSettings(true)}
+          callModalRef={callModalRef}
         />
       </div>
 
@@ -130,6 +138,20 @@ export default function ChatPage() {
         onClose={() => setShowNewChat(false)}
         onCreated={handleNewChatCreated}
       />
+
+      <ProfileModal
+        isOpen={showProfile}
+        onClose={() => setShowProfile(false)}
+      />
+
+      <GroupSettingsModal
+        isOpen={showGroupSettings}
+        onClose={() => setShowGroupSettings(false)}
+        conversation={activeConv}
+        onUpdate={handleGroupUpdate}
+      />
+
+      <CallModal ref={callModalRef} conversation={activeConv} currentUserId={user?.id} />
     </div>
   );
 }

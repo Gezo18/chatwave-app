@@ -8,6 +8,9 @@ COPY server/package*.json ./server/
 # Install server dependencies
 RUN cd server && npm install --production
 
+# Create uploads directory
+RUN mkdir -p server/uploads
+
 # Copy client build
 COPY client/dist ./client/dist
 

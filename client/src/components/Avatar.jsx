@@ -13,17 +13,26 @@ export default function Avatar({ name, color, size = 'md', online, className = '
     xl: 'w-4 h-4 border-2',
   };
 
+  const isUrl = color && (color.startsWith('/') || color.startsWith('http'));
   const initial = name ? name.charAt(0).toUpperCase() : '?';
-  const bgColor = color ? `#${color}` : '#6C63FF';
+  const bgColor = !isUrl && color ? `#${color}` : '#6C63FF';
 
   return (
     <div className={`relative flex-shrink-0 ${className}`}>
-      <div
-        className={`${sizes[size]} rounded-full flex items-center justify-center font-semibold text-white`}
-        style={{ backgroundColor: bgColor }}
-      >
-        {initial}
-      </div>
+      {isUrl ? (
+        <img
+          src={color}
+          alt={name}
+          className={`${sizes[size]} rounded-full object-cover`}
+        />
+      ) : (
+        <div
+          className={`${sizes[size]} rounded-full flex items-center justify-center font-semibold text-white`}
+          style={{ backgroundColor: bgColor }}
+        >
+          {initial}
+        </div>
+      )}
       {online !== undefined && (
         <div
           className={`absolute bottom-0 right-0 ${dotSizes[size]} rounded-full border-[var(--bg-light)] ${

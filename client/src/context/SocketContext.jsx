@@ -1,23 +1,73 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import { useAuth } from './AuthContext';
-import { api } from '../utils/api';
+import { io } from 'socket.io-client';
 
 const SocketContext = createContext(null);
 
 export function SocketProvider({ children }) {
   const { user } = useAuth();
-  const [connected] = useState(true);
-  const [onlineUsers] = useState(new Set());
-  const [typingUsers] = useState({});
+  const socketRef = useRef(null);
+  const [connected, setConnected] = useState(false);
+  const [onlineUsers, setOnlineUsers] = useState(new Set());
+  const [typingUsers, setTypingUsers] = useState({});
   const callbacksRef = useRef({});
+  const [incomingCall, setIncomingCall] = useState(null);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const token = localStorage.getItem('chatwave_token');
+    const socket = io(window.location.origin, {
+      auth: { token },
+      transports: ['websocket', 'polling']
+    });
+    socketRef.current = socket;
+
+    socket.on('connect', () => setConnected(true));
+    socket.on('disconnect', () => setConnected(false));
+
+    socket.on('user:online', ({ userId, online }) => {
+      setOnlineUsers(prev => {
+        const next = new Set(prev);
+        online ? next.add(userId) : next.delete(userId);
+        return next;
+      });
+    });
+
+    socket.on('typing:start', ({ conversationId, userId, username }) => {
+      setTypingUsers(prev => ({ ...prev, [conversationId]: { typing: true, userId, username } }));
+    });
+
+    socket.on('typing:stop', ({ conversationId }) => {
+      setTypingUsers(prev => ({ ...prev, [conversationId]: { typing: false } }));
+    });
+
+    // Forward all events to registered callbacks
+    const events = ['message:new', 'message:read', 'message:edited', 'message:deleted', 'reaction:changed',
+      'call:incoming', 'call:accepted', 'call:rejected', 'call:ended', 'call:signal'];
+    events.forEach(event => {
+      socket.on(event, (data) => {
+        if (event === 'call:incoming') {
+          setIncomingCall(data);
+        }
+        (callbacksRef.current[event] || []).forEach(cb => cb(data));
+      });
+    });
+
+    // Request notification permission
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [user]);
 
   const emit = useCallback((event, data) => {
-    if (event === 'message:send') {
-      api.conversations.sendMessage(data.conversationId, data.content).then(msg => {
-        (callbacksRef.current['message:new'] || []).forEach(cb => cb(msg));
-      });
-    } else if (event === 'message:read') {
-      api.conversations.read(data.conversationId, data.messageIds);
+    if (socketRef.current?.connected) {
+      socketRef.current.emit(event, data);
     }
   }, []);
 
@@ -31,7 +81,7 @@ export function SocketProvider({ children }) {
   }, []);
 
   return (
-    <SocketContext.Provider value={{ connected, onlineUsers, typingUsers, emit, on, off }}>
+    <SocketContext.Provider value={{ connected, onlineUsers, typingUsers, emit, on, off, incomingCall, setIncomingCall }}>
       {children}
     </SocketContext.Provider>
   );

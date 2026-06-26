@@ -17,6 +17,18 @@
   --border: #30363D;
   --message-own: #6C63FF;
   --message-other: #21262D;
+  --shadow: rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="light"] {
+  --bg: #F6F8FA;
+  --bg-light: #FFFFFF;
+  --text: #1F2328;
+  --text-muted: #656D76;
+  --border: #D0D7DE;
+  --message-own: #6C63FF;
+  --message-other: #E8ECF0;
+  --shadow: rgba(0, 0, 0, 0.1);
 }
 
 * {
@@ -69,3 +81,63 @@ input, textarea {
 
 .typing-dot:nth-child(2) { animation-delay: 0.2s; }
 .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes ring {
+  0% { transform: rotate(0deg); }
+  10% { transform: rotate(15deg); }
+  20% { transform: rotate(-10deg); }
+  30% { transform: rotate(15deg); }
+  40% { transform: rotate(-10deg); }
+  50% { transform: rotate(0deg); }
+  100% { transform: rotate(0deg); }
+}
+
+.phone-ring {
+  animation: ring 1.5s ease-in-out infinite;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.2s ease-out;
+}
+
+.reaction-picker {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+}
+
+.reaction-picker button {
+  padding: 6px;
+  border-radius: 8px;
+  font-size: 20px;
+  cursor: pointer;
+  transition: background 0.15s;
+  border: none;
+  background: transparent;
+}
+
+.reaction-picker button:hover {
+  background: var(--border);
+}
+
+/* Call video elements */
+video.call-video {
+  border-radius: 12px;
+  background: #000;
+  object-fit: cover;
+}
+
+video.call-video-local {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  width: 150px;
+  height: 100px;
+  border: 2px solid var(--border);
+  z-index: 10;
+}
